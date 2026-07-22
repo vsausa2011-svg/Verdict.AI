@@ -27,9 +27,25 @@ if not api_key:
     st.warning("👈 Please enter your Gemini API key in Streamlit Secrets!")
     st.stop()
 
-# Configure Gemini with the latest model
+# Configure Gemini & Auto-Detect Active Model
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-2.5-flash')
+
+def get_gemini_model():
+    """Finds the best available active Gemini model automatically."""
+    try:
+        available_models = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        # Prefer a 'flash' model for speed, otherwise take the first valid model
+        flash_models = [m for m in available_models if 'flash' in m.lower()]
+        selected_name = flash_models[0] if flash_models else available_models[0]
+        return genai.GenerativeModel(selected_name)
+    except Exception:
+        # Fallback if listing models fails
+        return genai.GenerativeModel('gemini-1.5-flash-latest')
+
+model = get_gemini_model()
 
 # App Tabs
 tab1, tab2 = st.tabs(["🔍 Vibe & Mood Decoder", "⚖️ Screenshot Text Court"])
@@ -50,7 +66,7 @@ with tab1:
         else:
             with st.spinner("Verdict AI is reading the subtext..."):
                 prompt = """Analyze this text message or chat screenshot.
-Return ONLY a valid JSON object with these keys:
+Return ONLY a valid JSON object with these exact keys:
 {
   "detected_mood": "Short summary of their current mood (e.g. Annoyed, Flirty, Disengaged)",
   "vibe_score": 75,
@@ -114,7 +130,7 @@ with tab2:
 1. Automatically identify the two people in the argument (e.g. by contact name at top, or 'Blue Bubbles (You)' vs 'Grey Bubbles (Friend)').
 2. Read all text spoken by both sides and evaluate logic, emotional control, and fairness.
 
-Return ONLY a valid JSON object:
+Return ONLY a valid JSON object with these exact keys:
 {
   "person_a": "Name/Label for Person 1",
   "person_b": "Name/Label for Person 2",
@@ -164,4 +180,3 @@ Return ONLY a valid JSON object:
 
                 except Exception as e:
                     st.error(f"Error settling argument: {e}")
-
