@@ -30,11 +30,31 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 def generate_ai_response(contents):
-    """Tries multiple model names until one succeeds."""
-    candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-flash']
-    last_error = None
+    """Dynamically fetches active models with full 'models/' path and calls Gemini."""
+    candidate_models = []
     
-    for model_name in candidate_models:
+    # 1. Ask Google directly for available models for this key
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                candidate_models.append(m.name)
+    except Exception:
+        pass
+
+    # 2. Hardcoded fallback list with full 'models/' prefix
+    if not candidate_models:
+        candidate_models = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-pro',
+            'models/gemini-2.0-flash-exp',
+            'models/gemini-1.5-flash-latest'
+        ]
+
+    # Prioritize 'flash' models for speed
+    flash_first = [m for m in candidate_models if 'flash' in m.lower()] + [m for m in candidate_models if 'flash' not in m.lower()]
+
+    last_error = None
+    for model_name in flash_first:
         try:
             m = genai.GenerativeModel(model_name)
             res = m.generate_content(
@@ -45,7 +65,7 @@ def generate_ai_response(contents):
         except Exception as e:
             last_error = e
             continue
-            
+
     raise last_error
 
 # App Tabs
