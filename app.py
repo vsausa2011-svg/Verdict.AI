@@ -27,9 +27,9 @@ if not api_key:
     st.warning("👈 Please enter your Gemini API key in Streamlit Secrets!")
     st.stop()
 
-# Configure Gemini
+# Configure Gemini with the latest model
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # App Tabs
 tab1, tab2 = st.tabs(["🔍 Vibe & Mood Decoder", "⚖️ Screenshot Text Court"])
