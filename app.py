@@ -1,6 +1,6 @@
 import streamlit as st
-import openai
-import base64
+import google.generativeai as genai
+from PIL import Image
 import json
 
 # Page Configuration
@@ -11,59 +11,49 @@ st.markdown("""
     <style>
     .main-title { text-align: center; font-size: 2.5rem; font-weight: bold; margin-bottom: 0px; }
     .sub-title { text-align: center; font-size: 1.1rem; color: #888; margin-bottom: 25px; }
-    .card { background-color: #1e1e2e; padding: 20px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #313244; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='main-title'>⚖️ Verdict AI</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Decode Subtext & Settle Text Debates with Friends</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Decode Subtext & Settle Text Debates Instantly</div>", unsafe_allow_html=True)
 
 # Sidebar for API Key
 st.sidebar.title("⚙️ Setup")
-api_key = st.sidebar.text_input("Enter OpenAI API Key:", type="password")
+api_key = st.sidebar.text_input("Enter Gemini API Key:", type="password")
 if not api_key:
-    api_key = st.secrets.get("OPENAI_API_KEY", "")
+    api_key = st.secrets.get("GEMINI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
 
 if not api_key:
-    st.warning("👈 Please enter your OpenAI API key in the sidebar to start!")
+    st.warning("👈 Please enter your Gemini API key in Streamlit Secrets!")
     st.stop()
 
-client = openai.OpenAI(api_key=api_key)
-
-def encode_image(uploaded_file):
-    return base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+# Configure Gemini
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # App Tabs
-tab1, tab2 = st.tabs(["🔍 Vibe & Mood Decoder", "⚖️ Text Argument Settler"])
+tab1, tab2 = st.tabs(["🔍 Vibe & Mood Decoder", "⚖️ Screenshot Text Court"])
 
+# -------------------------------------------------------------
 # TAB 1: VIBE & MOOD DECODER
+# -------------------------------------------------------------
 with tab1:
     st.header("🔍 Decode Text & Mood")
-    st.write("Find out what the other person is *actually* feeling behind their texts.")
+    st.write("Upload a screenshot or paste text to see what they are *actually* feeling.")
     
-    input_type = st.radio("Input method:", ["Type/Paste Text", "Upload Screenshot"], horizontal=True, key="vibe_input")
-    
-    chat_text = ""
-    base64_img = None
-    
-    if input_type == "Type/Paste Text":
-        chat_text = st.text_area("Paste the text conversation here:", height=150, placeholder="Person A: Hey are you coming tonight?\nPerson B: K. Guess so.")
-    else:
-        uploaded_img = st.file_uploader("Upload screenshot of chat:", type=["png", "jpg", "jpeg"], key="vibe_img")
-        if uploaded_img:
-            base64_img = encode_image(uploaded_img)
-            st.image(uploaded_img, caption="Uploaded Chat", use_column_width=True)
+    uploaded_vibe_img = st.file_uploader("Upload Chat Screenshot:", type=["png", "jpg", "jpeg"], key="vibe_img_direct")
+    chat_text_fallback = st.text_area("Or Paste Text Here (Optional):", height=100, key="vibe_text")
 
     if st.button("🔮 Decode Vibe & Mood", use_container_width=True):
-        if not chat_text and not base64_img:
-            st.error("Please provide text or an image screenshot!")
+        if not uploaded_vibe_img and not chat_text_fallback:
+            st.error("Please upload a screenshot or paste text!")
         else:
             with st.spinner("Verdict AI is reading the subtext..."):
                 prompt = """Analyze this text message or chat screenshot.
-Return a valid JSON object with the following keys:
+Return ONLY a valid JSON object with these keys:
 {
   "detected_mood": "Short summary of their current mood (e.g. Annoyed, Flirty, Disengaged)",
-  "vibe_score": 75, (0-100 engagement/vibe score)
+  "vibe_score": 75,
   "passive_aggression": "Low / Medium / High",
   "real_subtext": "What they are ACTUALLY thinking or feeling behind these texts",
   "power_dynamic": "Who holds the upper hand in this conversation and why",
@@ -72,26 +62,19 @@ Return a valid JSON object with the following keys:
   "response_direct": "A direct/firm response option"
 }"""
                 try:
-                    messages = [{"role": "system", "content": "You are Verdict AI, an expert social dynamics psychologist and text analyzer. Always respond in JSON."}]
-                    
-                    if base64_img:
-                        messages.append({
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
-                            ]
-                        })
+                    contents = [prompt]
+                    if uploaded_vibe_img:
+                        img = Image.open(uploaded_vibe_img)
+                        contents.append(img)
                     else:
-                        messages.append({"role": "user", "content": f"{prompt}\n\nChat:\n{chat_text}"})
+                        contents.append(f"Chat Text:\n{chat_text_fallback}")
 
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages,
-                        response_format={"type": "json_object"}
+                    response = model.generate_content(
+                        contents,
+                        generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    data = json.loads(response.choices[0].message.content)
+                    data = json.loads(response.text)
 
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Current Mood", data.get("detected_mood", "N/A"))
@@ -112,75 +95,65 @@ Return a valid JSON object with the following keys:
                 except Exception as e:
                     st.error(f"Error analyzing vibe: {e}")
 
-# TAB 2: TEXT ARGUMENT SETTLER
+# -------------------------------------------------------------
+# TAB 2: TEXT ARGUMENT SETTLER (AUTOMATIC SCREENSHOT JUDGE)
+# -------------------------------------------------------------
 with tab2:
-    st.header("⚖️ Supreme Text Court")
-    st.write("Settle arguments between you and a friend based on logic, fairness, and context.")
+    st.header("⚖️ Instant Screenshot Court")
+    st.write("Upload a screenshot of an argument—Verdict AI will auto-detect who is talking and declare a winner!")
 
-    arg_input_type = st.radio("Input method:", ["Type/Paste Text Argument", "Upload Screenshot"], horizontal=True, key="arg_input")
-    
-    arg_text = ""
-    arg_base64_img = None
-    
-    person_a = st.text_input("Person A Name:", value="Friend A")
-    person_b = st.text_input("Person B Name:", value="Friend B")
+    uploaded_arg_img = st.file_uploader("Upload Argument Screenshot:", type=["png", "jpg", "jpeg"], key="arg_img_direct")
+    arg_text_fallback = st.text_area("Or Paste Argument Text Here (Optional):", height=100, key="arg_text")
 
-    if arg_input_type == "Type/Paste Text Argument":
-        arg_text = st.text_area("Paste the argument thread here:", height=150, placeholder=f"{person_a}: You said you'd be here at 8!\n{person_b}: I said *around* 8, traffic exists!")
-    else:
-        uploaded_arg_img = st.file_uploader("Upload screenshot of argument:", type=["png", "jpg", "jpeg"], key="arg_img")
-        if uploaded_arg_img:
-            arg_base64_img = encode_image(uploaded_arg_img)
-            st.image(uploaded_arg_img, caption="Argument Screenshot", use_column_width=True)
-
-    if st.button("🔨 Issue Verdict", use_container_width=True):
-        if not arg_text and not arg_base64_img:
-            st.error("Please provide text or a screenshot of the argument!")
+    if st.button("🔨 Judge Argument Now", use_container_width=True):
+        if not uploaded_arg_img and not arg_text_fallback:
+            st.error("Please upload a screenshot or paste text!")
         else:
-            with st.spinner("Verdict AI is reviewing court evidence..."):
-                prompt = f"""Act as Verdict AI, a witty, fair, and authoritative Supreme Court Judge settling a debate between {person_a} and {person_b}.
-Return a valid JSON object with:
-{{
-  "winner": "Name of Winner ({person_a}, {person_b}, or Draw)",
+            with st.spinner("Verdict AI is reading the screenshot and judging..."):
+                prompt = """Analyze this argument screenshot or text thread.
+1. Automatically identify the two people in the argument (e.g. by contact name at top, or 'Blue Bubbles (You)' vs 'Grey Bubbles (Friend)').
+2. Read all text spoken by both sides and evaluate logic, emotional control, and fairness.
+
+Return ONLY a valid JSON object:
+{
+  "person_a": "Name/Label for Person 1",
+  "person_b": "Name/Label for Person 2",
+  "winner": "Name/Label of Winner (or Draw)",
   "headline": "A dramatic title for the verdict",
-  "score_a": 75, (0-100 logic score for {person_a})
-  "score_b": 45, (0-100 logic score for {person_b})
-  "breakdown_a": "Summary of {person_a}'s argument strength",
-  "breakdown_b": "Summary of {person_b}'s argument strength",
+  "score_a": 80,
+  "score_b": 40,
+  "breakdown_a": "Summary of Person 1's argument strength",
+  "breakdown_b": "Summary of Person 2's argument strength",
   "judge_ruling": "A hilarious yet logically sound final verdict explaining who won and why.",
   "penalty_for_loser": "A lighthearted/funny penalty for the loser."
-}}"""
+}"""
                 try:
-                    messages = [{"role": "system", "content": "You are Verdict AI. Always respond in JSON."}]
-                    
-                    if arg_base64_img:
-                        messages.append({
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{arg_base64_img}"}}
-                            ]
-                        })
+                    contents = [prompt]
+                    if uploaded_arg_img:
+                        img = Image.open(uploaded_arg_img)
+                        contents.append(img)
                     else:
-                        messages.append({"role": "user", "content": f"{prompt}\n\nArgument:\n{arg_text}"})
+                        contents.append(f"Argument Text:\n{arg_text_fallback}")
 
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages,
-                        response_format={"type": "json_object"}
+                    response = model.generate_content(
+                        contents,
+                        generation_config={"response_mime_type": "application/json"}
                     )
                     
-                    data = json.loads(response.choices[0].message.content)
+                    data = json.loads(response.text)
+
+                    p_a = data.get('person_a', 'Person 1')
+                    p_b = data.get('person_b', 'Person 2')
 
                     st.success(f"🏆 WINNER: {data.get('winner', 'Draw')}")
                     st.subheader(f"📜 {data.get('headline', 'Official Verdict')}")
 
                     col1, col2 = st.columns(2)
-                    col1.metric(f"{person_a} Score", f"{data.get('score_a', 0)}/100")
-                    col2.metric(f"{person_b} Score", f"{data.get('score_b', 0)}/100")
+                    col1.metric(f"{p_a} Score", f"{data.get('score_a', 0)}/100")
+                    col2.metric(f"{p_b} Score", f"{data.get('score_b', 0)}/100")
 
-                    st.markdown(f"**{person_a} Breakdown:** {data.get('breakdown_a', '')}")
-                    st.markdown(f"**{person_b} Breakdown:** {data.get('breakdown_b', '')}")
+                    st.markdown(f"**{p_a} Breakdown:** {data.get('breakdown_a', '')}")
+                    st.markdown(f"**{p_b} Breakdown:** {data.get('breakdown_b', '')}")
 
                     st.markdown("---")
                     st.markdown("### ⚖️ Final Judicial Verdict:")
@@ -191,3 +164,4 @@ Return a valid JSON object with:
 
                 except Exception as e:
                     st.error(f"Error settling argument: {e}")
+
