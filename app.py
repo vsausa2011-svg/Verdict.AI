@@ -27,25 +27,26 @@ if not api_key:
     st.warning("👈 Please enter your Gemini API key in Streamlit Secrets!")
     st.stop()
 
-# Configure Gemini & Auto-Detect Active Model
 genai.configure(api_key=api_key)
 
-def get_gemini_model():
-    """Finds the best available active Gemini model automatically."""
-    try:
-        available_models = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        # Prefer a 'flash' model for speed, otherwise take the first valid model
-        flash_models = [m for m in available_models if 'flash' in m.lower()]
-        selected_name = flash_models[0] if flash_models else available_models[0]
-        return genai.GenerativeModel(selected_name)
-    except Exception:
-        # Fallback if listing models fails
-        return genai.GenerativeModel('gemini-1.5-flash-latest')
-
-model = get_gemini_model()
+def generate_ai_response(contents):
+    """Tries multiple model names until one succeeds."""
+    candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-flash']
+    last_error = None
+    
+    for model_name in candidate_models:
+        try:
+            m = genai.GenerativeModel(model_name)
+            res = m.generate_content(
+                contents,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            return res.text
+        except Exception as e:
+            last_error = e
+            continue
+            
+    raise last_error
 
 # App Tabs
 tab1, tab2 = st.tabs(["🔍 Vibe & Mood Decoder", "⚖️ Screenshot Text Court"])
@@ -85,12 +86,8 @@ Return ONLY a valid JSON object with these exact keys:
                     else:
                         contents.append(f"Chat Text:\n{chat_text_fallback}")
 
-                    response = model.generate_content(
-                        contents,
-                        generation_config={"response_mime_type": "application/json"}
-                    )
-                    
-                    data = json.loads(response.text)
+                    raw_json = generate_ai_response(contents)
+                    data = json.loads(raw_json)
 
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Current Mood", data.get("detected_mood", "N/A"))
@@ -112,7 +109,7 @@ Return ONLY a valid JSON object with these exact keys:
                     st.error(f"Error analyzing vibe: {e}")
 
 # -------------------------------------------------------------
-# TAB 2: TEXT ARGUMENT SETTLER (AUTOMATIC SCREENSHOT JUDGE)
+# TAB 2: TEXT ARGUMENT SETTLER
 # -------------------------------------------------------------
 with tab2:
     st.header("⚖️ Instant Screenshot Court")
@@ -151,12 +148,8 @@ Return ONLY a valid JSON object with these exact keys:
                     else:
                         contents.append(f"Argument Text:\n{arg_text_fallback}")
 
-                    response = model.generate_content(
-                        contents,
-                        generation_config={"response_mime_type": "application/json"}
-                    )
-                    
-                    data = json.loads(response.text)
+                    raw_json = generate_ai_response(contents)
+                    data = json.loads(raw_json)
 
                     p_a = data.get('person_a', 'Person 1')
                     p_b = data.get('person_b', 'Person 2')
